@@ -1,0 +1,1014 @@
+import { useState, useMemo, useEffect } from "react";
+
+/* ─── FONTS ──────────────────────────────────────────────── */
+const FONT_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:#F0EDE6}
+  ::-webkit-scrollbar-thumb{background:#C8C3BA;border-radius:4px}
+  @keyframes fadein{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  @keyframes toastin{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+  .fi{animation:fadein .2s ease both}
+`;
+
+/* ─── DESIGN TOKENS ──────────────────────────────────────── */
+const C = {
+  /* page */
+  bg:     "#F2EFE8",
+  /* surfaces */
+  s1:     "#FFFFFF",
+  s2:     "#F7F5F0",
+  s3:     "#EDE9E2",
+  border: "#DDD9D1",
+  borderL:"#EAE7E0",
+  /* sidebar (dark ink) */
+  side:   "#1A1816",
+  sideS:  "#252220",
+  sideSel:"rgba(215,90,65,.14)",
+  sideTxt:"#C8C3BA",
+  sideMut:"#6A6560",
+  /* accent — terracotta */
+  accent: "#C14E35",
+  aFg:    "#FFFFFF",
+  aBg:    "rgba(193,78,53,.07)",
+  aBdr:   "rgba(193,78,53,.22)",
+  /* text */
+  text:   "#1C1917",
+  muted:  "#7C7870",
+  dim:    "#B8B4AE",
+  /* semantic */
+  ok:  "#2A7A52", okBg:"rgba(42,122,82,.08)",  okB:"rgba(42,122,82,.2)",
+  warn:"#A05412", wBg: "rgba(160,84,18,.08)",  wB: "rgba(160,84,18,.2)",
+  err: "#B53030", eBg: "rgba(181,48,48,.08)",  eB: "rgba(181,48,48,.2)",
+  info:"#1F4FA3", iBg: "rgba(31,79,163,.08)",  iB: "rgba(31,79,163,.2)",
+  pur: "#6833A8", pBg: "rgba(104,51,168,.08)", pB: "rgba(104,51,168,.2)",
+  /* fonts */
+  mono: "'JetBrains Mono', monospace",
+  head: "'Bricolage Grotesque', sans-serif",
+  body: "'Manrope', sans-serif",
+};
+
+/* ─── STATIC DATA ─────────────────────────────────────────── */
+const BRANDS  = ["Pecel Lele Aminoto","Bakmi Jowo","Bolu Sunyaragi"];
+const BSHORT  = {"Pecel Lele Aminoto":"PLA","Bakmi Jowo":"BMJ","Bolu Sunyaragi":"BSN"};
+const BCLR    = {"Pecel Lele Aminoto":C.ok,"Bakmi Jowo":C.info,"Bolu Sunyaragi":C.warn};
+const CABANGS = ["AMC","AMS","Kartini","AMG","Pusat"];
+
+const STAGES = [
+  {id:"belum_dihubungi",label:"Belum Dihubungi",c:C.muted,bg:"rgba(124,120,112,.09)"},
+  {id:"menunggu_balasan",label:"Menunggu",       c:C.info, bg:C.iBg},
+  {id:"negosiasi",       label:"Negosiasi",      c:C.warn, bg:C.wBg},
+  {id:"deal",            label:"Deal ✓",         c:C.pur,  bg:C.pBg},
+  {id:"konten_tayang",   label:"Tayang",         c:C.ok,   bg:C.okBg},
+  {id:"batal",           label:"Batal",          c:C.err,  bg:C.eBg},
+];
+const gStage = id => STAGES.find(s=>s.id===id)||STAGES[0];
+
+const SCONFIG = {
+  Approved:{c:C.ok, bg:C.okBg, b:C.okB},
+  Pending: {c:C.warn,bg:C.wBg,  b:C.wB},
+  Rejected:{c:C.err, bg:C.eBg,  b:C.eB},
+};
+
+/* ─── MOCK DATA ───────────────────────────────────────────── */
+function genData() {
+  const now=Date.now(), rows=[];
+  rows.push({
+    id:"KOL-9998",submitDate:new Date(now-5*864e5).toISOString(),
+    tiktokUsername:"@willie_salim",tiktokUrl:"https://tiktok.com/@willie_salim",
+    brand:"Bakmi Jowo",cabang:"AMC",status:"Approved",
+    pipelineStage:"deal",paymentStatus:"unpaid",
+    catatan:"Deal, produk dikirim besok",priority:"high",
+    rateCard:"5000000",isRateApproved:true,
+  });
+  const st=["Approved","Pending","Rejected"];
+  const ps=["belum_dihubungi","menunggu_balasan","negosiasi","deal","konten_tayang","batal"];
+  for(let i=1;i<=45;i++){
+    const d=new Date(now-Math.floor(Math.random()*40)*864e5);
+    const status=st[Math.floor(Math.random()*3)];
+    let pipeline="belum_dihubungi",pStatus="unpaid",rate="",isApproved=false;
+    if(status==="Approved"){
+      pipeline=ps[Math.floor(Math.random()*ps.length)];
+      if(["negosiasi","deal","konten_tayang"].includes(pipeline)){
+        rate=String(Math.floor(Math.random()*30+5)*100000);
+        if(["deal","konten_tayang"].includes(pipeline)) isApproved=Math.random()>.4;
+      }
+      if(pipeline==="konten_tayang") pStatus=Math.random()>.5?"paid":"unpaid";
+    }
+    rows.push({
+      id:`KOL-${1000+i}`,submitDate:d.toISOString(),
+      tiktokUsername:`@kol_influencer_${i}`,
+      tiktokUrl:`https://tiktok.com/@kol_influencer_${i}`,
+      brand:BRANDS[Math.floor(Math.random()*3)],
+      cabang:CABANGS[Math.floor(Math.random()*5)],
+      status,pipelineStage:pipeline,paymentStatus:pStatus,
+      catatan:Math.random()>.7?"Coba nego barter aja":"",
+      priority:Math.random()>.85?"high":"normal",
+      rateCard:rate,isRateApproved:isApproved,
+    });
+  }
+  return rows;
+}
+
+/* ─── HELPERS ─────────────────────────────────────────────── */
+const fmt   = n => new Intl.NumberFormat("id-ID").format(n);
+const fmtRp = n => `Rp ${fmt(n)}`;
+const fmtD  = iso => new Date(iso).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"});
+
+/* ─── MICRO COMPONENTS ────────────────────────────────────── */
+const Chip = ({label,c,bg,b,small})=>(
+  <span style={{
+    display:"inline-flex",alignItems:"center",gap:4,
+    padding:small?"2px 7px":"3px 9px",
+    background:bg,color:c,borderRadius:3,
+    border:`1px solid ${b||bg}`,
+    fontSize:small?9:10,fontWeight:600,letterSpacing:".05em",
+    textTransform:"uppercase",fontFamily:C.mono,whiteSpace:"nowrap",
+  }}>
+    <span style={{width:4,height:4,borderRadius:"50%",background:c,flexShrink:0}}/>
+    {label}
+  </span>
+);
+
+const Btn = ({children,onClick,v="ghost",sz="md",disabled,full,style:s={}})=>{
+  const base={
+    display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,
+    border:"none",cursor:disabled?"not-allowed":"pointer",
+    fontFamily:C.body,fontWeight:500,borderRadius:4,
+    transition:"all .12s",opacity:disabled?.4:1,
+    fontSize:sz==="sm"?11:sz==="lg"?13:12,
+    padding:sz==="sm"?"5px 10px":sz==="lg"?"9px 18px":"6px 13px",
+    width:full?"100%":undefined,
+  };
+  const vs={
+    primary:{background:C.accent,color:C.aFg},
+    ghost:  {background:"transparent",color:C.muted,border:`1px solid ${C.border}`},
+    danger: {background:C.eBg,color:C.err,border:`1px solid ${C.eB}`},
+    success:{background:C.okBg,color:C.ok,border:`1px solid ${C.okB}`},
+    subtle: {background:C.s2,color:C.text,border:`1px solid ${C.border}`},
+  };
+  return(
+    <button style={{...base,...vs[v],...s}} onClick={disabled?undefined:onClick}>{children}</button>
+  );
+};
+
+const Sel=({value,onChange,opts,s={}})=>(
+  <select value={value} onChange={e=>onChange(e.target.value)} style={{
+    background:C.s1,color:C.text,border:`1px solid ${C.border}`,
+    borderRadius:4,padding:"6px 10px",fontSize:12,
+    fontFamily:C.body,outline:"none",cursor:"pointer",...s,
+  }}>
+    {opts.map(o=><option key={o.v||o} value={o.v||o} style={{background:C.s1}}>{o.l||o}</option>)}
+  </select>
+);
+
+const Inp=({value,onChange,placeholder,s={}})=>(
+  <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={{
+      background:C.s1,color:C.text,border:`1px solid ${C.border}`,
+      borderRadius:4,padding:"6px 11px",fontSize:12,
+      fontFamily:C.body,outline:"none",...s,
+    }}
+  />
+);
+
+const FieldLabel=({children})=>(
+  <div style={{fontSize:9,fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",
+    color:C.muted,fontFamily:C.mono,marginBottom:6}}>
+    {children}
+  </div>
+);
+
+/* Stat card — no colored top bar, clean number + label */
+const StatCard=({label,value,sub,dot})=>(
+  <div style={{flex:1,padding:"18px 20px",background:C.s1,
+    border:`1px solid ${C.border}`,borderRadius:8}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
+      {dot&&<span style={{width:6,height:6,borderRadius:"50%",background:dot,flexShrink:0}}/>}
+      <span style={{fontSize:9,fontWeight:600,letterSpacing:".09em",textTransform:"uppercase",
+        color:C.muted,fontFamily:C.mono}}>{label}</span>
+    </div>
+    <div style={{fontSize:26,fontWeight:700,fontFamily:C.head,color:C.text,lineHeight:1}}>
+      {value}
+    </div>
+    {sub&&<div style={{fontSize:11,color:C.dim,marginTop:7,fontFamily:C.body}}>{sub}</div>}
+  </div>
+);
+
+const TH=({cols})=>(
+  <div style={{display:"grid",gridTemplateColumns:cols.map(c=>c.w).join(" "),
+    padding:"8px 16px",background:C.s2,borderBottom:`1px solid ${C.border}`}}>
+    {cols.map((c,i)=>(
+      <div key={i} style={{fontSize:9,fontWeight:600,letterSpacing:".09em",
+        color:C.dim,fontFamily:C.mono,paddingLeft:i===0?0:4}}>
+        {c.label}
+      </div>
+    ))}
+  </div>
+);
+
+/* ─── MAIN APP ────────────────────────────────────────────── */
+export default function App() {
+  useEffect(()=>{
+    const el=document.createElement("style");
+    el.textContent=FONT_CSS;
+    document.head.appendChild(el);
+    return()=>el.remove();
+  },[]);
+
+  const [data,setData]     = useState(genData);
+  const [menu,setMenu]     = useState("dashboard");
+  const [toast,setToast]   = useState(null);
+  const [isAdmin,setIsAdmin] = useState(true);
+  const [side,setSide]     = useState(true);
+
+  const [search,setSearch]   = useState("");
+  const [fBrand,setFBrand]   = useState("Semua");
+  const [fCabang,setFCabang] = useState("Semua");
+  const [fStatus,setFStatus] = useState("Semua");
+  const [page,setPage]       = useState(1);
+  const [selIds,setSelIds]   = useState([]);
+  const PER=10;
+
+  const [eSearch,setESearch]   = useState("");
+  const [eStage,setEStage]     = useState("Semua");
+  const [eSelIds,setESelIds]   = useState([]);
+  const [bulkStage,setBulkStage] = useState("menunggu_balasan");
+  const [editId,setEditId]     = useState(null);
+  const [editNote,setEditNote] = useState("");
+  const [rateInps,setRateInps] = useState({});
+
+  const today   = new Date();
+  const firstDay= new Date(today.getFullYear(),today.getMonth(),1).toISOString().split("T")[0];
+  const todayStr= today.toISOString().split("T")[0];
+  const [finBrand,setFinBrand] = useState("Semua");
+  const [finStart,setFinStart] = useState(firstDay);
+  const [finEnd,setFinEnd]     = useState(todayStr);
+  const [finPay,setFinPay]     = useState("Semua");
+  const [budgets,setBudgets]   = useState({[`${firstDay}_${todayStr}`]:25000000});
+  const [budgetInp,setBudgetInp] = useState("25.000.000");
+
+  const [rekBrand,setRekBrand]   = useState("Semua");
+  const [rekBudget,setRekBudget] = useState("");
+  const [rekRes,setRekRes]       = useState(null);
+  const [analyzing,setAnalyzing] = useState(false);
+  const [newKol,setNewKol] = useState({username:"",url:"",brand:BRANDS[0],cabang:CABANGS[0]});
+
+  const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),2800);};
+  const update=(id,fields)=>setData(p=>p.map(x=>x.id===id?{...x,...fields}:x));
+
+  const filtered=useMemo(()=>{
+    let r=[...data];
+    if(search) r=r.filter(d=>d.tiktokUsername.toLowerCase().includes(search.toLowerCase()));
+    if(fBrand!=="Semua") r=r.filter(d=>d.brand===fBrand);
+    if(fCabang!=="Semua") r=r.filter(d=>d.cabang===fCabang);
+    if(fStatus!=="Semua") r=r.filter(d=>d.status===fStatus);
+    return r.sort((a,b)=>new Date(b.submitDate)-new Date(a.submitDate));
+  },[data,search,fBrand,fCabang,fStatus]);
+
+  useEffect(()=>setPage(1),[search,fBrand,fCabang,fStatus]);
+  const paged=filtered.slice((page-1)*PER,page*PER);
+  const totalPages=Math.ceil(filtered.length/PER);
+
+  const execData=useMemo(()=>{
+    let r=data.filter(d=>d.status==="Approved");
+    if(eSearch) r=r.filter(d=>d.tiktokUsername.toLowerCase().includes(eSearch.toLowerCase()));
+    if(eStage!=="Semua") r=r.filter(d=>d.pipelineStage===eStage);
+    return r.sort((a,b)=>new Date(a.submitDate)-new Date(b.submitDate));
+  },[data,eSearch,eStage]);
+
+  const finData=useMemo(()=>{
+    let r=data.filter(x=>{
+      const ok=x.status==="Approved"&&["deal","konten_tayang"].includes(x.pipelineStage);
+      const d=new Date(x.submitDate);
+      const s=new Date(finStart);s.setHours(0,0,0,0);
+      const e=new Date(finEnd);e.setHours(23,59,59,999);
+      return ok&&d>=s&&d<=e;
+    });
+    if(finBrand!=="Semua") r=r.filter(d=>d.brand===finBrand);
+    if(finPay!=="Semua") r=r.filter(d=>d.paymentStatus===finPay);
+    return r;
+  },[data,finBrand,finStart,finEnd,finPay]);
+
+  const fin=useMemo(()=>{
+    let used=0,paid=0,unpaid=0;
+    finData.forEach(x=>{if(x.isRateApproved){const v=parseInt(x.rateCard)||0;used+=v;x.paymentStatus==="paid"?paid+=v:unpaid+=v;}});
+    const budget=budgets[`${finStart}_${finEnd}`]||0;
+    return{used,paid,unpaid,budget,rem:budget-used};
+  },[finData,budgets,finStart,finEnd]);
+
+  const stats=useMemo(()=>({
+    total:data.length,
+    approved:data.filter(d=>d.status==="Approved").length,
+    pending:data.filter(d=>d.status==="Pending").length,
+    rejected:data.filter(d=>d.status==="Rejected").length,
+    high:data.filter(d=>d.priority==="high"&&d.status==="Approved").length,
+  }),[data]);
+
+  const handleApprove=id=>{update(id,{status:"Approved",pipelineStage:"belum_dihubungi"});showToast("KOL di-Approve");};
+  const handleReject =id=>{update(id,{status:"Rejected"});showToast("KOL di-Reject","err");};
+  const handleBulkApprove=()=>{
+    setData(p=>p.map(x=>selIds.includes(x.id)?{...x,status:"Approved",pipelineStage:"belum_dihubungi"}:x));
+    showToast(`${selIds.length} KOL di-Approve`);setSelIds([]);
+  };
+  const handleBulkReject=()=>{
+    setData(p=>p.map(x=>selIds.includes(x.id)?{...x,status:"Rejected"}:x));
+    showToast(`${selIds.length} KOL di-Reject`,"err");setSelIds([]);
+  };
+  const handleBulkStage=()=>{
+    setData(p=>p.map(x=>eSelIds.includes(x.id)?{...x,pipelineStage:bulkStage}:x));
+    showToast(`${eSelIds.length} KOL dipindah`);setESelIds([]);
+  };
+  const handleContact=item=>{
+    window.open(item.tiktokUrl,"_blank","noopener,noreferrer");
+    const t=`Halo kak ${item.tiktokUsername}! 👋\nKami dari tim *${item.brand}* cabang *${item.cabang}* ingin menawarkan kerjasama. Boleh minta rate card-nya kak? 🙏`;
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = t;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-999999px";
+      textArea.style.top = "-999999px";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand('copy');
+      textArea.remove();
+    } catch(e) {
+      console.error("Gagal menyalin", e);
+    }
+    if(item.pipelineStage==="belum_dihubungi") update(item.id,{pipelineStage:"menunggu_balasan"});
+    showToast("Template disalin → buka TikTok");
+  };
+  const handleSaveRate=id=>{
+    const n=parseInt((rateInps[id]||"").replace(/\D/g,""));
+    if(!n){showToast("Rate tidak valid","err");return;}
+    update(id,{rateCard:String(n)});showToast("Rate disimpan");
+  };
+  const handleAddKol=()=>{
+    if(!newKol.username){showToast("Username wajib diisi!","err");return;}
+    setData(p=>[{
+      id:`KOL-${Math.floor(Math.random()*99999)}`,submitDate:new Date().toISOString(),
+      tiktokUsername:newKol.username.startsWith("@")?newKol.username:`@${newKol.username}`,
+      tiktokUrl:newKol.url||`https://tiktok.com/@${newKol.username}`,
+      brand:newKol.brand,cabang:newKol.cabang,status:"Pending",
+      pipelineStage:"belum_dihubungi",paymentStatus:"unpaid",
+      catatan:"",priority:"normal",rateCard:"",isRateApproved:false,
+    },...p]);
+    setNewKol({username:"",url:"",brand:BRANDS[0],cabang:CABANGS[0]});
+    showToast("KOL diajukan — menunggu approval");setMenu("dashboard");
+  };
+  const setBudget=val=>{
+    setBudgets(p=>({...p,[`${finStart}_${finEnd}`]:parseInt(val.replace(/\D/g,""))||0}));
+  };
+  const handleAnalyze=()=>{
+    setAnalyzing(true);setRekRes(null);
+    setTimeout(()=>{
+      const maxB=parseInt(rekBudget.replace(/\D/g,""))||Infinity;
+      const res=data
+        .filter(x=>{
+          const mB=rekBrand==="Semua"||x.brand===rekBrand;
+          const rate=parseInt(x.rateCard)||0;
+          return mB&&(rate===0||rate<=maxB)&&x.status!=="Rejected"&&x.pipelineStage!=="batal";
+        })
+        .map(x=>{
+          let sc=50;
+          if(x.status==="Approved")sc+=10;
+          if(["deal","konten_tayang"].includes(x.pipelineStage))sc+=25;
+          if(x.priority==="high")sc+=10;
+          if(x.catatan)sc+=5;
+          return{...x,score:Math.min(sc,100)};
+        })
+        .sort((a,b)=>b.score-a.score).slice(0,10);
+      setRekRes(res);setAnalyzing(false);
+    },1400);
+  };
+
+  const toggleSel =id=>setSelIds(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const toggleESel=id=>setESelIds(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+
+  const nav=[
+    {id:"dashboard",  sym:"—",  label:"Database"},
+    {id:"eksekusi",   sym:"◈",  label:"Eksekusi"},
+    {id:"keuangan",   sym:"◎",  label:"Keuangan"},
+    {id:"rekomendasi", sym:"✦",  label:"Smart Pick"},
+    {id:"tambah",     sym:"+",  label:"Tambah KOL"},
+  ];
+  const sW=side?200:52;
+
+  /* ── DASHBOARD ── */
+  const renderDashboard=()=>{
+    const allSel=paged.length>0&&paged.every(d=>selIds.includes(d.id));
+    return(
+      <div className="fi">
+        <div style={{display:"flex",gap:10,marginBottom:22,flexWrap:"wrap"}}>
+          <StatCard label="Total KOL"  value={stats.total}   sub={`${stats.high} prioritas tinggi`}/>
+          <StatCard label="Approved"   value={stats.approved} dot={C.ok}   sub={`${Math.round(stats.approved/stats.total*100)}% dari total`}/>
+          <StatCard label="Pending"    value={stats.pending}  dot={C.warn} sub="Menunggu review"/>
+          <StatCard label="Rejected"   value={stats.rejected} dot={C.err}/>
+        </div>
+
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+          <Inp value={search} onChange={setSearch} placeholder="Cari username…" s={{maxWidth:200}}/>
+          <Sel value={fBrand}  onChange={setFBrand}  opts={["Semua",...BRANDS]}/>
+          <Sel value={fCabang} onChange={setFCabang} opts={["Semua",...CABANGS]}/>
+          <Sel value={fStatus} onChange={setFStatus} opts={["Semua","Approved","Pending","Rejected"]}/>
+          <span style={{marginLeft:"auto",fontSize:10,color:C.dim,fontFamily:C.mono}}>{filtered.length} hasil</span>
+        </div>
+
+        {selIds.length>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",
+            background:C.aBg,border:`1px solid ${C.aBdr}`,borderRadius:5,marginBottom:12}}>
+            <span style={{fontSize:12,color:C.accent,fontWeight:600,fontFamily:C.mono}}>{selIds.length} dipilih</span>
+            {isAdmin&&<Btn v="success" sz="sm" onClick={handleBulkApprove}>✓ Approve</Btn>}
+            {isAdmin&&<Btn v="danger"  sz="sm" onClick={handleBulkReject}>✕ Reject</Btn>}
+            <Btn v="ghost" sz="sm" onClick={()=>setSelIds([])}>Batal</Btn>
+          </div>
+        )}
+
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,overflow:"hidden"}}>
+          <TH cols={[
+            {label:"",w:"30px"},{label:"USERNAME",w:"1fr"},
+            {label:"BRAND",w:"76px"},{label:"CABANG",w:"62px"},
+            {label:"TANGGAL",w:"84px"},{label:"STATUS",w:"130px"},{label:"AKSI",w:"76px"},
+          ]}/>
+          {paged.length===0
+            ?<div style={{padding:"36px",textAlign:"center",color:C.dim,fontSize:13}}>Tidak ada data.</div>
+            :paged.map((item,idx)=>{
+              const stg=gStage(item.pipelineStage);
+              const sc=SCONFIG[item.status];
+              const sel=selIds.includes(item.id);
+              return(
+                <div key={item.id} style={{
+                  display:"grid",gridTemplateColumns:"30px 1fr 76px 62px 84px 130px 76px",
+                  padding:"9px 16px",borderBottom:idx<paged.length-1?`1px solid ${C.borderL}`:"none",
+                  background:sel?C.aBg:"transparent",transition:"background .12s",alignItems:"center",
+                }}>
+                  <input type="checkbox" checked={sel} onChange={()=>toggleSel(item.id)}
+                    style={{accentColor:C.accent,cursor:"pointer"}}/>
+                  <div style={{paddingLeft:4,overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      {item.priority==="high"&&<span style={{color:C.warn,fontSize:10,fontWeight:700}}>⚑</span>}
+                      <a href={item.tiktokUrl} target="_blank" rel="noopener noreferrer"
+                        style={{color:C.accent,fontSize:12,fontFamily:C.mono,textDecoration:"none",fontWeight:500}}>
+                        {item.tiktokUsername}
+                      </a>
+                    </div>
+                    <div style={{fontSize:9,color:C.dim,marginTop:1,fontFamily:C.mono}}>{item.id}</div>
+                    {item.catatan&&<div style={{fontSize:10,color:C.muted,marginTop:1,fontStyle:"italic",
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>
+                      "{item.catatan}"</div>}
+                  </div>
+                  <div style={{paddingLeft:4,fontSize:10,fontWeight:700,color:BCLR[item.brand],fontFamily:C.mono}}>
+                    {BSHORT[item.brand]}</div>
+                  <div style={{paddingLeft:4,fontSize:11,color:C.muted,fontFamily:C.mono}}>{item.cabang}</div>
+                  <div style={{paddingLeft:4,fontSize:10,color:C.dim,fontFamily:C.mono}}>{fmtD(item.submitDate)}</div>
+                  <div style={{paddingLeft:4,display:"flex",flexDirection:"column",gap:3}}>
+                    <Chip label={item.status} c={sc?.c||C.muted} bg={sc?.bg||C.s2} b={sc?.b} small/>
+                    <Chip label={stg.label}  c={stg.c}         bg={stg.bg}                small/>
+                  </div>
+                  <div style={{paddingLeft:4,display:"flex",gap:4}}>
+                    {item.status==="Pending"&&isAdmin&&<>
+                      <button onClick={()=>handleApprove(item.id)}
+                        style={{background:C.okBg,border:`1px solid ${C.okB}`,borderRadius:3,
+                          padding:"3px 8px",cursor:"pointer",color:C.ok,fontSize:11,fontWeight:700}}>✓</button>
+                      <button onClick={()=>handleReject(item.id)}
+                        style={{background:C.eBg,border:`1px solid ${C.eB}`,borderRadius:3,
+                          padding:"3px 8px",cursor:"pointer",color:C.err,fontSize:11,fontWeight:700}}>✕</button>
+                    </>}
+                    {item.status==="Approved"&&(
+                      <button onClick={()=>{setMenu("eksekusi");setESearch(item.tiktokUsername);}}
+                        style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,
+                          padding:"3px 8px",cursor:"pointer",color:C.muted,fontSize:11}}>→</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+
+        {totalPages>1&&(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:14}}>
+            <span style={{fontSize:10,color:C.dim,fontFamily:C.mono}}>
+              {(page-1)*PER+1}–{Math.min(page*PER,filtered.length)} / {filtered.length}
+            </span>
+            <div style={{display:"flex",gap:4}}>
+              <Btn v="ghost" sz="sm" onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}>‹</Btn>
+              {Array.from({length:Math.min(totalPages,5)},(_,i)=>{
+                const p=page<=3?i+1:page-2+i;
+                if(p<1||p>totalPages)return null;
+                return(
+                  <button key={p} onClick={()=>setPage(p)} style={{
+                    width:28,height:28,borderRadius:3,cursor:"pointer",
+                    fontSize:11,fontFamily:C.mono,
+                    border:`1px solid ${p===page?C.accent:C.border}`,
+                    background:p===page?C.aBg:"transparent",
+                    color:p===page?C.accent:C.muted,
+                  }}>{p}</button>
+                );
+              })}
+              <Btn v="ghost" sz="sm" onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}>›</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /* ── EKSEKUSI ── */
+  const renderEksekusi=()=>{
+    const cnts={};
+    STAGES.forEach(s=>{cnts[s.id]=data.filter(d=>d.status==="Approved"&&d.pipelineStage===s.id).length;});
+
+    return(
+      <div className="fi">
+        {/* Stage summary */}
+        <div style={{display:"flex",gap:8,marginBottom:20,overflowX:"auto",paddingBottom:2}}>
+          {STAGES.map(s=>(
+            <button key={s.id} onClick={()=>setEStage(eStage===s.id?"Semua":s.id)} style={{
+              display:"flex",flexDirection:"column",gap:3,padding:"10px 14px",minWidth:88,
+              background:eStage===s.id?s.bg:C.s1,
+              border:`1px solid ${eStage===s.id?s.c+"50":C.border}`,
+              borderRadius:6,cursor:"pointer",flexShrink:0,transition:"all .12s",textAlign:"left",
+            }}>
+              <span style={{fontSize:20,fontWeight:700,fontFamily:C.head,color:s.c}}>{cnts[s.id]}</span>
+              <span style={{fontSize:9,color:C.muted,fontFamily:C.mono,letterSpacing:".04em"}}>{s.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+          <Inp value={eSearch} onChange={setESearch} placeholder="Cari username…" s={{maxWidth:200}}/>
+          {eSelIds.length>0&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 12px",background:C.aBg,
+              border:`1px solid ${C.aBdr}`,borderRadius:5}}>
+              <span style={{fontSize:11,color:C.accent,fontFamily:C.mono}}>{eSelIds.length} dipilih</span>
+              <Sel value={bulkStage} onChange={setBulkStage}
+                opts={STAGES.map(s=>({v:s.id,l:s.label}))} s={{fontSize:11}}/>
+              <Btn v="primary" sz="sm" onClick={handleBulkStage}>Pindah</Btn>
+              <Btn v="ghost"  sz="sm" onClick={()=>setESelIds([])}>✕</Btn>
+            </div>
+          )}
+          <span style={{marginLeft:"auto",fontSize:10,color:C.dim,fontFamily:C.mono}}>{execData.length} KOL aktif</span>
+        </div>
+
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,overflow:"hidden"}}>
+          <TH cols={[
+            {label:"",w:"30px"},{label:"USERNAME",w:"1fr"},
+            {label:"BRAND",w:"86px"},{label:"STAGE",w:"148px"},
+            {label:"RATE CARD",w:"164px"},{label:"AKSI",w:"134px"},
+          ]}/>
+          {execData.length===0
+            ?<div style={{padding:"36px",textAlign:"center",color:C.dim,fontSize:13}}>Tidak ada KOL aktif.</div>
+            :execData.map((item,idx)=>{
+              const stg=gStage(item.pipelineStage);
+              const isSel=eSelIds.includes(item.id);
+              const isEdit=editId===item.id;
+              const rateV=rateInps[item.id]!==undefined?rateInps[item.id]:(item.rateCard?fmt(parseInt(item.rateCard)):"");
+              const needRate=["negosiasi","deal","konten_tayang"].includes(item.pipelineStage);
+              return(
+                <div key={item.id} style={{borderBottom:idx<execData.length-1?`1px solid ${C.borderL}`:"none",
+                  background:isSel?C.aBg:"transparent"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"30px 1fr 86px 148px 164px 134px",
+                    padding:"9px 16px",alignItems:"center"}}>
+                    <input type="checkbox" checked={isSel} onChange={()=>toggleESel(item.id)}
+                      style={{accentColor:C.accent,cursor:"pointer"}}/>
+                    <div style={{paddingLeft:4}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        {item.priority==="high"&&<span style={{color:C.warn,fontSize:10,fontWeight:700}}>⚑</span>}
+                        <span style={{color:C.text,fontSize:12,fontFamily:C.mono}}>{item.tiktokUsername}</span>
+                      </div>
+                      {item.catatan&&!isEdit&&<div style={{fontSize:10,color:C.muted,fontStyle:"italic",marginTop:2}}>"{item.catatan}"</div>}
+                      {isEdit&&(
+                        <div style={{display:"flex",gap:5,marginTop:6}}>
+                          <input value={editNote} onChange={e=>setEditNote(e.target.value)}
+                            placeholder="Catatan…" style={{flex:1,background:C.s2,border:`1px solid ${C.border}`,
+                              borderRadius:3,padding:"4px 7px",fontSize:11,color:C.text,outline:"none",fontFamily:C.body}}/>
+                          <Btn v="primary" sz="sm" onClick={()=>{update(item.id,{catatan:editNote});setEditId(null);showToast("Catatan disimpan");}}>OK</Btn>
+                          <Btn v="ghost" sz="sm" onClick={()=>setEditId(null)}>✕</Btn>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{paddingLeft:4}}>
+                      <div style={{fontSize:10,fontWeight:700,color:BCLR[item.brand],fontFamily:C.mono}}>{BSHORT[item.brand]}</div>
+                      <div style={{fontSize:10,color:C.dim,marginTop:2,fontFamily:C.mono}}>{item.cabang}</div>
+                    </div>
+                    <div style={{paddingLeft:4}}>
+                      <select value={item.pipelineStage} onChange={e=>update(item.id,{pipelineStage:e.target.value})}
+                        style={{background:stg.bg,color:stg.c,border:`1px solid ${stg.c}40`,
+                          borderRadius:4,padding:"4px 8px",fontSize:10,fontFamily:C.mono,
+                          outline:"none",cursor:"pointer",width:"100%"}}>
+                        {STAGES.map(s=><option key={s.id} value={s.id} style={{background:C.s1,color:C.text}}>{s.label}</option>)}
+                      </select>
+                    </div>
+                    <div style={{paddingLeft:4}}>
+                      {needRate?(
+                        <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                          <input value={rateV}
+                            onChange={e=>setRateInps(p=>({...p,[item.id]:e.target.value}))}
+                            placeholder="0" style={{flex:1,minWidth:0,background:C.s2,border:`1px solid ${C.border}`,
+                              borderRadius:3,padding:"4px 6px",fontSize:10,color:C.text,fontFamily:C.mono,outline:"none"}}/>
+                          {["deal","konten_tayang"].includes(item.pipelineStage)&&(
+                            <button onClick={()=>{const r=rateInps[item.id]||item.rateCard;if(r){const n=parseInt(r.replace(/\D/g,""));if(n){update(item.id,{rateCard:String(n),isRateApproved:true});showToast("Rate disetujui");}}}}
+                              style={{background:item.isRateApproved?C.okBg:C.s2,
+                                border:`1px solid ${item.isRateApproved?C.okB:C.border}`,
+                                borderRadius:3,padding:"4px 6px",cursor:"pointer",
+                                color:item.isRateApproved?C.ok:C.dim,fontSize:11}}>
+                              {item.isRateApproved?"✓":"○"}
+                            </button>
+                          )}
+                          <Btn v="ghost" sz="sm" onClick={()=>handleSaveRate(item.id)} style={{padding:"3px 7px",fontSize:10}}>→</Btn>
+                        </div>
+                      ):<span style={{fontSize:11,color:C.dim,fontFamily:C.mono}}>—</span>}
+                    </div>
+                    <div style={{paddingLeft:4,display:"flex",gap:4}}>
+                      <Btn v="subtle" sz="sm" onClick={()=>handleContact(item)} style={{fontSize:10,padding:"4px 8px"}}>↗ Hubungi</Btn>
+                      <button onClick={()=>{setEditId(isEdit?null:item.id);setEditNote(item.catatan||"");}}
+                        style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,
+                          padding:"4px 7px",cursor:"pointer",color:C.muted,fontSize:11}}>✎</button>
+                      {item.pipelineStage==="konten_tayang"&&(
+                        <button onClick={()=>update(item.id,{paymentStatus:item.paymentStatus==="paid"?"unpaid":"paid"})}
+                          style={{background:item.paymentStatus==="paid"?C.okBg:C.s2,
+                            border:`1px solid ${item.paymentStatus==="paid"?C.okB:C.border}`,
+                            borderRadius:3,padding:"4px 7px",cursor:"pointer",
+                            color:item.paymentStatus==="paid"?C.ok:C.dim,fontSize:11}}>
+                          {item.paymentStatus==="paid"?"✓$":"$"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+    );
+  };
+
+  /* ── KEUANGAN ── */
+  const renderKeuangan=()=>{
+    const pct=fin.budget>0?Math.min(fin.used/fin.budget*100,100):0;
+    const barC=pct>90?C.err:pct>70?C.warn:C.accent;
+    return(
+      <div className="fi">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+          <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,padding:"16px 18px"}}>
+            <FieldLabel>Rentang Periode</FieldLabel>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input type="date" value={finStart} onChange={e=>setFinStart(e.target.value)}
+                style={{flex:1,background:C.s2,color:C.text,border:`1px solid ${C.border}`,
+                  borderRadius:3,padding:"5px 9px",fontSize:11,fontFamily:C.mono,outline:"none"}}/>
+              <span style={{color:C.dim,fontSize:12}}>→</span>
+              <input type="date" value={finEnd} onChange={e=>setFinEnd(e.target.value)}
+                style={{flex:1,background:C.s2,color:C.text,border:`1px solid ${C.border}`,
+                  borderRadius:3,padding:"5px 9px",fontSize:11,fontFamily:C.mono,outline:"none"}}/>
+            </div>
+          </div>
+          <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,padding:"16px 18px"}}>
+            <FieldLabel>Plafon Anggaran Periode</FieldLabel>
+            <div style={{display:"flex",gap:7,alignItems:"center"}}>
+              <span style={{color:C.muted,fontSize:12,fontFamily:C.mono}}>Rp</span>
+              <input value={budgetInp} onChange={e=>{setBudgetInp(e.target.value);setBudget(e.target.value);}}
+                placeholder="25.000.000"
+                style={{flex:1,background:C.s2,color:C.text,border:`1px solid ${C.border}`,
+                  borderRadius:3,padding:"5px 9px",fontSize:12,fontFamily:C.mono,outline:"none"}}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Budget meter */}
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,padding:"18px 20px",marginBottom:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+            <div>
+              <FieldLabel>Budget Terpakai</FieldLabel>
+              <div style={{fontSize:24,fontWeight:700,fontFamily:C.head,color:barC,lineHeight:1}}>{fmtRp(fin.used)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <FieldLabel>Plafon</FieldLabel>
+              <div style={{fontSize:24,fontWeight:700,fontFamily:C.head,color:C.text,lineHeight:1}}>{fmtRp(fin.budget)}</div>
+            </div>
+          </div>
+          <div style={{background:C.s3,borderRadius:2,height:5,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${pct}%`,background:barC,borderRadius:2,transition:"width .5s ease"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:7}}>
+            <span style={{fontSize:10,color:C.dim,fontFamily:C.mono}}>{pct.toFixed(1)}% terpakai</span>
+            <span style={{fontSize:10,color:fin.rem<0?C.err:C.ok,fontFamily:C.mono}}>Sisa: {fmtRp(Math.max(0,fin.rem))}</span>
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:10,marginBottom:20}}>
+          <StatCard label="Total Deal"    value={fmtRp(fin.used)}   dot={C.accent} sub={`${finData.length} KOL dalam periode`}/>
+          <StatCard label="Belum Dibayar" value={fmtRp(fin.unpaid)} dot={C.warn}/>
+          <StatCard label="Sudah Dibayar" value={fmtRp(fin.paid)}   dot={C.ok}/>
+        </div>
+
+        <div style={{display:"flex",gap:8,marginBottom:14}}>
+          <Sel value={finBrand} onChange={setFinBrand} opts={["Semua",...BRANDS]}/>
+          <Sel value={finPay} onChange={setFinPay} opts={[
+            {v:"Semua",l:"Semua Status"},{v:"paid",l:"Sudah Dibayar"},{v:"unpaid",l:"Belum Dibayar"},
+          ]}/>
+        </div>
+
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,overflow:"hidden"}}>
+          <TH cols={[
+            {label:"USERNAME",w:"1fr"},{label:"BRAND",w:"76px"},
+            {label:"RATE",w:"128px"},{label:"STAGE",w:"106px"},{label:"BAYAR",w:"108px"},
+          ]}/>
+          {finData.length===0
+            ?<div style={{padding:"36px",textAlign:"center",color:C.dim,fontSize:13}}>Tidak ada transaksi dalam periode ini.</div>
+            :finData.map((item,idx)=>{
+              const stg=gStage(item.pipelineStage);
+              return(
+                <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 76px 128px 106px 108px",
+                  padding:"9px 16px",borderBottom:idx<finData.length-1?`1px solid ${C.borderL}`:"none",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:12,color:C.text,fontFamily:C.mono}}>{item.tiktokUsername}</div>
+                    <div style={{fontSize:9,color:C.dim,marginTop:2,fontFamily:C.mono}}>{fmtD(item.submitDate)}</div>
+                  </div>
+                  <div style={{paddingLeft:4,fontSize:10,fontWeight:700,color:BCLR[item.brand],fontFamily:C.mono}}>
+                    {BSHORT[item.brand]}</div>
+                  <div style={{paddingLeft:4}}>
+                    <div style={{fontSize:12,color:item.isRateApproved?C.text:C.dim,fontFamily:C.mono}}>
+                      {item.rateCard?fmtRp(parseInt(item.rateCard)):"—"}</div>
+                    {item.isRateApproved&&<div style={{fontSize:9,color:C.ok,marginTop:1,fontFamily:C.mono}}>✓ disetujui</div>}
+                  </div>
+                  <div style={{paddingLeft:4}}><Chip label={stg.label} c={stg.c} bg={stg.bg} small/></div>
+                  <div style={{paddingLeft:4}}>
+                    <button onClick={()=>update(item.id,{paymentStatus:item.paymentStatus==="paid"?"unpaid":"paid"})}
+                      style={{background:item.paymentStatus==="paid"?C.okBg:C.s2,
+                        border:`1px solid ${item.paymentStatus==="paid"?C.okB:C.border}`,
+                        borderRadius:3,padding:"4px 10px",cursor:"pointer",
+                        color:item.paymentStatus==="paid"?C.ok:C.muted,
+                        fontSize:10,fontFamily:C.mono,fontWeight:600}}>
+                      {item.paymentStatus==="paid"?"✓ PAID":"○ UNPAID"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+    );
+  };
+
+  /* ── REKOMENDASI ── */
+  const renderRek=()=>(
+    <div className="fi">
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,padding:"20px",marginBottom:22}}>
+        <div style={{fontFamily:C.head,fontWeight:700,fontSize:16,color:C.text,marginBottom:3}}>Smart KOL Pick</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:18}}>Temukan KOL terbaik berdasarkan potensi dan kesesuaian budget.</div>
+        <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div><FieldLabel>Brand</FieldLabel><Sel value={rekBrand} onChange={setRekBrand} opts={["Semua",...BRANDS]}/></div>
+          <div>
+            <FieldLabel>Maks. Budget (kosong = unlimited)</FieldLabel>
+            <input value={rekBudget} onChange={e=>setRekBudget(e.target.value)}
+              placeholder="Contoh: 2000000"
+              style={{background:C.s2,color:C.text,border:`1px solid ${C.border}`,
+                borderRadius:4,padding:"6px 11px",fontSize:12,fontFamily:C.mono,outline:"none",width:200}}/>
+          </div>
+          <Btn v="primary" sz="lg" onClick={handleAnalyze} disabled={analyzing}>
+            {analyzing?"⟳  Menganalisis…":"✦  Analisis"}
+          </Btn>
+        </div>
+      </div>
+
+      {analyzing&&(
+        <div style={{textAlign:"center",padding:"56px 20px",color:C.muted}}>
+          <div style={{fontSize:26,marginBottom:10,color:C.accent}}>✦</div>
+          <div style={{fontSize:13}}>Menganalisis data KOL…</div>
+        </div>
+      )}
+
+      {rekRes&&!analyzing&&(
+        <div>
+          <div style={{fontSize:10,color:C.dim,marginBottom:12,fontFamily:C.mono}}>{rekRes.length} hasil ditemukan</div>
+          {rekRes.length===0
+            ?<div style={{padding:"36px",textAlign:"center",color:C.dim,fontSize:13,
+              background:C.s1,borderRadius:7,border:`1px solid ${C.border}`}}>
+              Tidak ada KOL yang sesuai kriteria.</div>
+            :rekRes.map((item,idx)=>{
+              const stg=gStage(item.pipelineStage);
+              const sc=item.score;
+              const sC=sc>=80?C.ok:sc>=60?C.warn:C.dim;
+              return(
+                <div key={item.id} className="fi" style={{animationDelay:`${idx*.04}s`,
+                  display:"flex",alignItems:"center",gap:14,padding:"12px 16px",
+                  background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,marginBottom:7}}>
+                  <div style={{width:36,height:36,borderRadius:"50%",
+                    background:`${sC}14`,border:`1.5px solid ${sC}`,
+                    display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <span style={{fontSize:10,fontWeight:700,color:sC,fontFamily:C.mono}}>{sc}</span>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontFamily:C.mono,fontSize:12,color:C.text,fontWeight:500}}>{item.tiktokUsername}</span>
+                      {item.priority==="high"&&<span style={{fontSize:9,color:C.warn,fontFamily:C.mono,fontWeight:700}}>⚑ HIGH</span>}
+                      <Chip label={stg.label} c={stg.c} bg={stg.bg} small/>
+                    </div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:4}}>
+                      <span style={{color:BCLR[item.brand],fontWeight:600}}>{BSHORT[item.brand]}</span>
+                      <span style={{fontFamily:C.mono}}> · {item.cabang}</span>
+                      {item.rateCard&&<span style={{marginLeft:10,fontFamily:C.mono}}>Rp {fmt(parseInt(item.rateCard))}</span>}
+                      {item.catatan&&<span style={{fontStyle:"italic",marginLeft:10}}>"{item.catatan}"</span>}
+                    </div>
+                  </div>
+                  <Btn v="subtle" sz="sm" onClick={()=>{setMenu("eksekusi");setESearch(item.tiktokUsername);}}>→ Eksekusi</Btn>
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+    </div>
+  );
+
+  /* ── TAMBAH ── */
+  const renderTambah=()=>(
+    <div className="fi" style={{maxWidth:480}}>
+      <div style={{fontFamily:C.head,fontWeight:700,fontSize:22,color:C.text,marginBottom:3}}>Ajukan KOL Baru</div>
+      <div style={{fontSize:13,color:C.muted,marginBottom:24}}>Masuk sebagai Pending — admin perlu approve sebelum eksekusi.</div>
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:7,padding:"22px"}}>
+        
+        <div style={{marginBottom:16}}>
+          <FieldLabel>URL Profil TikTok (Paste link ke sini)</FieldLabel>
+          <Inp 
+            value={newKol.url} 
+            onChange={v => {
+              let nextUsername = newKol.username;
+              // Ekstrak otomatis username yang berawalan @ dari URL
+              const match = v.match(/@([a-zA-Z0-9_.-]+)/);
+              if (match && match[0]) {
+                nextUsername = match[0];
+              }
+              setNewKol(p => ({ ...p, url: v, username: nextUsername }));
+            }} 
+            placeholder="https://tiktok.com/@nama_akun" 
+            s={{width:"100%"}}
+          />
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <FieldLabel>TikTok Username *</FieldLabel>
+          <Inp 
+            value={newKol.username} 
+            onChange={v => setNewKol(p => ({ ...p, username: v }))} 
+            placeholder="@nama_akun" 
+            s={{width:"100%"}}
+          />
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:22}}>
+          <div>
+            <FieldLabel>Brand</FieldLabel>
+            <Sel value={newKol.brand} onChange={v=>setNewKol(p=>({...p,brand:v}))} opts={BRANDS} s={{width:"100%"}}/>
+          </div>
+          <div>
+            <FieldLabel>Cabang</FieldLabel>
+            <Sel value={newKol.cabang} onChange={v=>setNewKol(p=>({...p,cabang:v}))} opts={CABANGS} s={{width:"100%"}}/>
+          </div>
+        </div>
+        <Btn v="primary" sz="lg" onClick={handleAddKol} full>Ajukan KOL →</Btn>
+      </div>
+      <div style={{marginTop:12,padding:"10px 14px",background:C.wBg,
+        border:`1px solid ${C.wB}`,borderRadius:5}}>
+        <span style={{fontSize:11,color:C.warn}}>
+          Status awal: <strong>Pending</strong>. Admin harus approve sebelum masuk ke Eksekusi.
+        </span>
+      </div>
+    </div>
+  );
+
+  /* ─── RENDER ──────────────────────────────────────────────── */
+  return(
+    <div style={{display:"flex",height:"100vh",background:C.bg,color:C.text,fontFamily:C.body,overflow:"hidden"}}>
+
+      {/* ── SIDEBAR — dark ink ── */}
+      <aside style={{
+        width:sW,background:C.side,
+        display:"flex",flexDirection:"column",transition:"width .18s ease",flexShrink:0,overflow:"hidden",
+      }}>
+        {/* Logo */}
+        <div style={{padding:"15px 12px",borderBottom:"1px solid rgba(255,255,255,.06)",
+          display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{width:27,height:27,background:C.accent,borderRadius:4,flexShrink:0,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            color:"#fff",fontWeight:800,fontSize:13,fontFamily:C.head}}>N</div>
+          {side&&<div style={{fontFamily:C.head,fontWeight:700,fontSize:13,
+            color:"#E8E4DC",whiteSpace:"nowrap",letterSpacing:"-.01em"}}>
+            KOL Manager
+          </div>}
+        </div>
+
+        {/* Brand pills */}
+        {side&&(
+          <div style={{padding:"10px 12px 0",display:"flex",flexDirection:"column",gap:4}}>
+            {BRANDS.map(b=>(
+              <div key={b} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 8px"}}>
+                <span style={{width:5,height:5,borderRadius:"50%",background:BCLR[b],flexShrink:0}}/>
+                <span style={{fontSize:10,color:C.sideMut,fontFamily:C.mono}}>{BSHORT[b]}</span>
+                <span style={{fontSize:10,color:"rgba(200,195,186,.35)",overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Divider */}
+        <div style={{margin:"12px 0",borderTop:"1px solid rgba(255,255,255,.05)"}}/>
+
+        {/* Nav */}
+        <nav style={{padding:"0 8px",flex:1}}>
+          {nav.map(n=>(
+            <button key={n.id} onClick={()=>setMenu(n.id)} style={{
+              width:"100%",display:"flex",alignItems:"center",
+              gap:10,padding:side?"8px 10px":"8px 0",
+              justifyContent:side?"flex-start":"center",
+              background:menu===n.id?C.sideSel:"transparent",
+              border:"none",
+              borderLeft:`2px solid ${menu===n.id?C.accent:"transparent"}`,
+              cursor:"pointer",
+              color:menu===n.id?"#E8E4DC":C.sideMut,
+              fontFamily:C.body,fontWeight:menu===n.id?500:400,
+              fontSize:12,marginBottom:1,transition:"all .12s",
+            }}>
+              <span style={{fontSize:n.id==="tambah"?17:14,flexShrink:0,
+                color:menu===n.id?C.accent:C.sideMut,
+                marginLeft:menu===n.id&&side?0:undefined}}>{n.sym}</span>
+              {side&&<span style={{whiteSpace:"nowrap"}}>{n.label}</span>}
+            </button>
+          ))}
+        </nav>
+
+        {/* Bottom */}
+        <div style={{padding:"10px 8px",borderTop:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
+          {side&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",
+              background:"rgba(255,255,255,.04)",borderRadius:4,marginBottom:8,cursor:"pointer"}}
+              onClick={()=>setIsAdmin(!isAdmin)}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:isAdmin?C.ok:C.warn,flexShrink:0}}/>
+              <span style={{fontSize:10,color:C.sideMut,flex:1}}>{isAdmin?"Admin Mode":"Staff Mode"}</span>
+              <span style={{fontSize:9,color:C.sideMut}}>↕</span>
+            </div>
+          )}
+          <button onClick={()=>setSide(!side)} style={{
+            width:"100%",display:"flex",justifyContent:"center",padding:"6px",
+            background:"transparent",border:"none",cursor:"pointer",color:C.sideMut,fontSize:12,
+          }}>{side?"←":"→"}</button>
+        </div>
+      </aside>
+
+      {/* ── MAIN ── */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {/* Header */}
+        <header style={{padding:"13px 24px",borderBottom:`1px solid ${C.border}`,
+          background:C.s1,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+          <div>
+            <div style={{fontFamily:C.head,fontWeight:700,fontSize:16,color:C.text,letterSpacing:"-.02em"}}>
+              {nav.find(n=>n.id===menu)?.label}
+            </div>
+            <div style={{fontSize:10,color:C.dim,marginTop:1,fontFamily:C.mono}}>Nobitos.com · KOL Tracker</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:4,padding:"4px 10px",
+              fontSize:10,color:C.muted,fontFamily:C.mono}}>
+              {data.length} KOL
+            </div>
+            {stats.high>0&&(
+              <div style={{background:C.wBg,border:`1px solid ${C.wB}`,borderRadius:4,
+                padding:"4px 10px",fontSize:10,color:C.warn,fontFamily:C.mono}}>
+                ⚑ {stats.high} prioritas
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Page */}
+        <div style={{flex:1,overflow:"auto",padding:"20px 24px"}} key={menu}>
+          {menu==="dashboard"    && renderDashboard()}
+          {menu==="eksekusi"     && renderEksekusi()}
+          {menu==="keuangan"     && renderKeuangan()}
+          {menu==="rekomendasi"  && renderRek()}
+          {menu==="tambah"       && renderTambah()}
+        </div>
+      </div>
+
+      {/* ── TOAST ── */}
+      {toast&&(
+        <div style={{
+          position:"fixed",bottom:20,right:20,zIndex:9999,
+          background:C.side,
+          borderLeft:`2px solid ${toast.type==="err"?C.err:C.ok}`,
+          padding:"10px 16px",borderRadius:5,fontSize:12,color:"#E8E4DC",
+          boxShadow:"0 6px 24px rgba(0,0,0,.15)",
+          animation:"toastin .2s ease both",fontFamily:C.body,
+        }}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
